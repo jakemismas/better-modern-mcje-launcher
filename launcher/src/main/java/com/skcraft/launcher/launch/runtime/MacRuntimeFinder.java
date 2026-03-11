@@ -11,7 +11,6 @@ import lombok.extern.java.Log;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Level;
@@ -25,7 +24,31 @@ public class MacRuntimeFinder implements PlatformRuntimeFinder {
 
 	@Override
 	public List<File> getCandidateJavaLocations() {
-		return Collections.emptyList();
+		List<File> entries = new ArrayList<>();
+
+		// Check JAVA_HOME (set by macOS .app bundle launcher script)
+		String javaHome = System.getenv("JAVA_HOME");
+		if (javaHome != null) {
+			File javaHomeDir = new File(javaHome);
+			if (javaHomeDir.isDirectory()) {
+				entries.add(javaHomeDir);
+			}
+		}
+
+		// Check install directory passed from Bootstrap
+		String installDir = System.getProperty("skcraft.launcher.installDir");
+		if (installDir != null) {
+			// macOS .app bundle: JRE is at Contents/PlugIns/jre/Contents/Home
+			File appContents = new File(installDir).getParentFile();
+			if (appContents != null) {
+				File pluginsJre = new File(appContents, "PlugIns/jre/Contents/Home");
+				if (pluginsJre.isDirectory()) {
+					entries.add(pluginsJre);
+				}
+			}
+		}
+
+		return entries;
 	}
 
 	@Override

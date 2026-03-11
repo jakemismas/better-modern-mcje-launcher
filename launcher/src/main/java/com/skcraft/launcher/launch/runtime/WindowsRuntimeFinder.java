@@ -42,19 +42,54 @@ public class WindowsRuntimeFinder implements PlatformRuntimeFinder {
 	public List<File> getCandidateJavaLocations() {
 		List<File> candidates = new ArrayList<>();
 
-		// Check for bundled JRE in the application installation directory
+		// 1. Check install directory passed from Bootstrap (primary bundled JRE path)
+		String installDir = System.getProperty("skcraft.launcher.installDir");
+		if (installDir != null) {
+			File bundledJre = new File(installDir, "jre");
+			if (bundledJre.isDirectory()) {
+				log.info("Found bundled JRE via install dir: " + bundledJre);
+				candidates.add(bundledJre);
+			}
+		}
+
+		// 2. Check launcher data directory (where Bootstrap copies the JRE)
+		String localAppData = System.getenv("LOCALAPPDATA");
+		if (localAppData != null) {
+			File copiedJre = new File(new File(localAppData, "MCJE"), "jre");
+			if (copiedJre.isDirectory()) {
+				candidates.add(copiedJre);
+			}
+		}
+
+		// 3. Check common Java installation directories
+		String programFiles = System.getenv("ProgramFiles");
+		String programFilesX86 = System.getenv("ProgramFiles(x86)");
+		addSubdirectories(candidates, programFiles, "Java");
+		addSubdirectories(candidates, programFilesX86, "Java");
+		addSubdirectories(candidates, programFiles, "Eclipse Adoptium");
+		addSubdirectories(candidates, programFiles, "Microsoft\\jdk");
+		addSubdirectories(candidates, programFiles, "AdoptOpenJDK");
+
+		// 4. Check JAVA_HOME environment variable
+		String javaHome = System.getenv("JAVA_HOME");
+		if (javaHome != null) {
+			File javaHomeDir = new File(javaHome);
+			if (javaHomeDir.isDirectory()) {
+				candidates.add(javaHomeDir);
+			}
+		}
+
+		// 5. Fallback: check relative to JAR location (works in portable mode)
 		try {
 			File jarLocation = new File(WindowsRuntimeFinder.class.getProtectionDomain()
 					.getCodeSource().getLocation().toURI());
-			// Navigate up from the JAR to the installation directory
-			File installDir = jarLocation.getParentFile();
-			if (installDir != null) {
-				// Check both the install dir and one level up (in case JAR is in a subdirectory)
-				File bundledJre = new File(installDir, "jre");
+			File jarDir = jarLocation.getParentFile();
+			if (jarDir != null) {
+				File bundledJre = new File(jarDir, "jre");
 				if (bundledJre.isDirectory()) {
 					candidates.add(bundledJre);
 				}
-				File parentDir = installDir.getParentFile();
+				File parentDir = jarDir.getParentFile();
 				if (parentDir != null) {
 					bundledJre = new File(parentDir, "jre");
 					if (bundledJre.isDirectory()) {
@@ -63,10 +98,23 @@ public class WindowsRuntimeFinder implements PlatformRuntimeFinder {
 				}
 			}
 		} catch (Exception e) {
-			log.log(Level.WARNING, "Failed to detect bundled JRE location", e);
+			log.log(Level.WARNING, "Failed to detect JRE relative to JAR location", e);
 		}
 
 		return candidates;
+	}
+
+	private static void addSubdirectories(List<File> candidates, String parent, String child) {
+		if (parent == null) return;
+		File dir = new File(parent, child);
+		if (dir.isDirectory()) {
+			File[] subDirs = dir.listFiles(File::isDirectory);
+			if (subDirs != null) {
+				for (File subDir : subDirs) {
+					candidates.add(subDir);
+				}
+			}
+		}
 	}
 
 	@Override

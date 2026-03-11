@@ -15,6 +15,8 @@ import javax.swing.filechooser.FileSystemView;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
@@ -167,6 +169,27 @@ public class Bootstrap {
 
         log.info("Launching with arguments " + Arrays.toString(args));
 
+        // Copy bundled JRE to launcher data directory if not already there
+        try {
+            File bootstrapJar = new File(Bootstrap.class.getProtectionDomain()
+                    .getCodeSource().getLocation().toURI());
+            File installDir = bootstrapJar.getParentFile();
+            if (installDir != null) {
+                System.setProperty("skcraft.launcher.installDir", installDir.getAbsolutePath());
+                log.info("Install directory: " + installDir.getAbsolutePath());
+
+                File bundledJre = new File(installDir, "jre");
+                File targetJre = new File(baseDir, "jre");
+                if (bundledJre.isDirectory() && !targetJre.isDirectory()) {
+                    log.info("Copying bundled JRE to " + targetJre.getAbsolutePath());
+                    copyDirectory(bundledJre, targetJre);
+                    log.info("Bundled JRE copied successfully");
+                }
+            }
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Failed to set up bundled JRE", e);
+        }
+
         method.invoke(null, new Object[] { args });
     }
 
@@ -215,6 +238,20 @@ public class Bootstrap {
         }
 
         return dotFolder;
+    }
+
+    private static void copyDirectory(File source, File target) throws IOException {
+        target.mkdirs();
+        File[] files = source.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            File dest = new File(target, file.getName());
+            if (file.isDirectory()) {
+                copyDirectory(file, dest);
+            } else {
+                Files.copy(file.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
     }
 
     private static boolean isPortableMode() {
