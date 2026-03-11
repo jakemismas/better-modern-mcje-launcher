@@ -15,15 +15,15 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FilenameFilter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
  * A full-window background panel that displays auto-scrolling screenshots.
  * Screenshots are loaded from instance folders and displayed with crossfade transitions.
+ *
+ * All state is accessed only from the EDT to avoid threading issues.
  */
 @Log
 public class ScreenshotCarousel extends JPanel {
@@ -40,7 +40,7 @@ public class ScreenshotCarousel extends JPanel {
     private boolean isTransitioning = false;
     private int currentIndex = 0;
 
-    private ScheduledExecutorService scheduler;
+    private Timer displayTimer;
     private Timer transitionTimer;
 
     public ScreenshotCarousel(File baseDir) {
@@ -49,36 +49,42 @@ public class ScreenshotCarousel extends JPanel {
         setBackground(FALLBACK_BACKGROUND);
 
         // Load screenshots in background
-        SwingWorker<Void, Void> loader = new SwingWorker<Void, Void>() {
+        SwingWorker<List<File>, Void> loader = new SwingWorker<List<File>, Void>() {
             @Override
-            protected Void doInBackground() {
-                scanForScreenshots();
-                return null;
+            protected List<File> doInBackground() {
+                return scanForScreenshots();
             }
 
             @Override
             protected void done() {
-                if (!screenshotFiles.isEmpty()) {
-                    loadCurrentImage();
-                    startCarousel();
+                try {
+                    List<File> files = get();
+                    screenshotFiles.clear();
+                    screenshotFiles.addAll(files);
+                    if (!screenshotFiles.isEmpty()) {
+                        loadCurrentImage();
+                        startCarousel();
+                    }
+                } catch (Exception e) {
+                    log.warning("Failed to scan for screenshots: " + e.getMessage());
                 }
             }
         };
         loader.execute();
     }
 
-    private void scanForScreenshots() {
-        screenshotFiles.clear();
+    private List<File> scanForScreenshots() {
+        List<File> files = new ArrayList<>();
 
         File instancesDir = new File(baseDir, "instances");
         if (!instancesDir.exists() || !instancesDir.isDirectory()) {
             log.info("Instances directory not found: " + instancesDir);
-            return;
+            return files;
         }
 
         // Scan each instance for screenshots
         File[] instances = instancesDir.listFiles(File::isDirectory);
-        if (instances == null) return;
+        if (instances == null) return files;
 
         for (File instance : instances) {
             File screenshotsDir = new File(instance, "minecraft/screenshots");
@@ -93,17 +99,19 @@ public class ScreenshotCarousel extends JPanel {
 
                 if (screenshots != null) {
                     for (File screenshot : screenshots) {
-                        screenshotFiles.add(screenshot);
+                        files.add(screenshot);
                     }
                 }
             }
         }
 
         // Shuffle for variety
-        if (!screenshotFiles.isEmpty()) {
-            java.util.Collections.shuffle(screenshotFiles, new Random());
-            log.info("Found " + screenshotFiles.size() + " screenshots");
+        if (!files.isEmpty()) {
+            Collections.shuffle(files, new Random());
+            log.info("Found " + files.size() + " screenshots");
         }
+
+        return files;
     }
 
     private void loadCurrentImage() {
@@ -121,44 +129,52 @@ public class ScreenshotCarousel extends JPanel {
     private void startCarousel() {
         if (screenshotFiles.size() <= 1) return;
 
-        scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleAtFixedRate(this::transitionToNext,
-                DISPLAY_DURATION_MS, DISPLAY_DURATION_MS, TimeUnit.MILLISECONDS);
+        displayTimer = new Timer(DISPLAY_DURATION_MS, e -> transitionToNext());
+        displayTimer.start();
     }
 
     private void transitionToNext() {
         if (screenshotFiles.isEmpty() || isTransitioning) return;
 
-        // Load next image
-        int nextIndex = (currentIndex + 1) % screenshotFiles.size();
-        try {
-            nextImage = ImageIO.read(screenshotFiles.get(nextIndex));
-        } catch (Exception e) {
-            log.warning("Failed to load next screenshot");
-            nextImage = null;
-            currentIndex = nextIndex;
-            return;
-        }
+        // Load next image in background, then start transition on EDT
+        final int nextIndex = (currentIndex + 1) % screenshotFiles.size();
+        SwingWorker<BufferedImage, Void> loader = new SwingWorker<BufferedImage, Void>() {
+            @Override
+            protected BufferedImage doInBackground() throws Exception {
+                return ImageIO.read(screenshotFiles.get(nextIndex));
+            }
 
-        // Start transition
-        isTransitioning = true;
-        transitionAlpha = 0.0f;
-
-        SwingUtilities.invokeLater(() -> {
-            transitionTimer = new Timer(16, e -> { // ~60fps
-                transitionAlpha += 16.0f / TRANSITION_DURATION_MS;
-                if (transitionAlpha >= 1.0f) {
-                    transitionAlpha = 1.0f;
-                    currentImage = nextImage;
+            @Override
+            protected void done() {
+                try {
+                    nextImage = get();
+                } catch (Exception e) {
+                    log.warning("Failed to load next screenshot");
                     nextImage = null;
-                    currentIndex = (currentIndex + 1) % screenshotFiles.size();
-                    isTransitioning = false;
-                    transitionTimer.stop();
+                    currentIndex = nextIndex;
+                    return;
                 }
-                repaint();
-            });
-            transitionTimer.start();
-        });
+
+                // Start transition on EDT
+                isTransitioning = true;
+                transitionAlpha = 0.0f;
+
+                transitionTimer = new Timer(16, evt -> { // ~60fps
+                    transitionAlpha += 16.0f / TRANSITION_DURATION_MS;
+                    if (transitionAlpha >= 1.0f) {
+                        transitionAlpha = 1.0f;
+                        currentImage = nextImage;
+                        nextImage = null;
+                        currentIndex = (currentIndex + 1) % screenshotFiles.size();
+                        isTransitioning = false;
+                        transitionTimer.stop();
+                    }
+                    repaint();
+                });
+                transitionTimer.start();
+            }
+        };
+        loader.execute();
     }
 
     @Override
@@ -227,18 +243,24 @@ public class ScreenshotCarousel extends JPanel {
      * Refresh the list of screenshots.
      */
     public void refresh() {
-        SwingWorker<Void, Void> loader = new SwingWorker<Void, Void>() {
+        SwingWorker<List<File>, Void> loader = new SwingWorker<List<File>, Void>() {
             @Override
-            protected Void doInBackground() {
-                scanForScreenshots();
-                return null;
+            protected List<File> doInBackground() {
+                return scanForScreenshots();
             }
 
             @Override
             protected void done() {
-                if (!screenshotFiles.isEmpty() && currentImage == null) {
-                    loadCurrentImage();
-                    startCarousel();
+                try {
+                    List<File> files = get();
+                    screenshotFiles.clear();
+                    screenshotFiles.addAll(files);
+                    if (!screenshotFiles.isEmpty() && currentImage == null) {
+                        loadCurrentImage();
+                        startCarousel();
+                    }
+                } catch (Exception e) {
+                    log.warning("Failed to refresh screenshots: " + e.getMessage());
                 }
             }
         };
@@ -249,8 +271,8 @@ public class ScreenshotCarousel extends JPanel {
      * Stop the carousel and release resources.
      */
     public void stop() {
-        if (scheduler != null) {
-            scheduler.shutdownNow();
+        if (displayTimer != null) {
+            displayTimer.stop();
         }
         if (transitionTimer != null) {
             transitionTimer.stop();

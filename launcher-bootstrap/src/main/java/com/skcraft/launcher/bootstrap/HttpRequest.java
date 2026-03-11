@@ -153,7 +153,6 @@ public class HttpRequest implements Closeable, ProgressObservable {
                 body = null;
             case HttpURLConnection.HTTP_MOVED_PERM:
             case HttpURLConnection.HTTP_MOVED_TEMP:
-            case HttpURLConnection.HTTP_ACCEPTED:
             case 307:
             case 308:
                 String location = conn.getHeaderField("Location");
@@ -224,10 +223,11 @@ public class HttpRequest implements Closeable, ProgressObservable {
 
         try {
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            int b = 0;
-            while ((b = inputStream.read()) != -1) {
+            byte[] buf = new byte[READ_BUFFER_SIZE];
+            int len;
+            while ((len = inputStream.read(buf)) != -1) {
                 checkInterrupted();
-                bos.write(b);
+                bos.write(buf, 0, len);
             }
             return new BufferedResponse(bos.toByteArray());
         } finally {

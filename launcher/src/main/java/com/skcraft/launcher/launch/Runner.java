@@ -264,9 +264,7 @@ public class Runner implements Callable<Process>, ProgressObservable {
 
         if (permGen <= 0) {
             permGen = 128;
-        }
-
-        if (permGen <= 64) {
+        } else if (permGen < 64) {
             permGen = 64;
         }
 

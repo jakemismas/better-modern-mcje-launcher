@@ -104,7 +104,9 @@ public class Downloader implements Runnable, ProgressObservable {
                     .saveContent(tempFile);
 
             finalFile.delete();
-            tempFile.renameTo(finalFile);
+            if (!tempFile.renameTo(finalFile)) {
+                throw new IOException("Failed to rename " + tempFile + " to " + finalFile);
+            }
 
             LauncherBinary binary = new LauncherBinary(finalFile);
             binaries.add(binary);

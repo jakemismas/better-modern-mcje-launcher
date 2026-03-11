@@ -243,7 +243,9 @@ public class Bootstrap {
     private static void copyDirectory(File source, File target) throws IOException {
         target.mkdirs();
         File[] files = source.listFiles();
-        if (files == null) return;
+        if (files == null) {
+            throw new IOException("Failed to list directory: " + source.getAbsolutePath());
+        }
         for (File file : files) {
             File dest = new File(target, file.getName());
             if (file.isDirectory()) {
