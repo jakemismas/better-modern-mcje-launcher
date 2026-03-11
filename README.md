@@ -42,11 +42,21 @@ JARs show up in `<module>/build/libs/`. They're all fat JARs (shadow plugin), so
 | launcher-builder | launcher-builder.jar | com.skcraft.launcher.builder.PackageBuilder |
 | creator-tools | creator-tools.jar | com.skcraft.launcher.creator.Creator |
 
+## Running locally for testing
+
+After building, you can run the launcher directly:
+
+```bash
+java -jar launcher-fancy/build/libs/launcher-fancy.jar --dir ./testdata
+```
+
+The `--dir` flag points to a directory for all launcher data (instances, libraries, config). Useful so you don't mess with your real install while testing. You can also pass `--portable` to keep everything in the current folder.
+
 ## Config files you care about
 
 ### `launcher/src/main/resources/com/skcraft/launcher/launcher.properties`
 
-Where the launcher looks for modpacks, news, and updates. Also has the Microsoft OAuth client ID (registered in Azure AD).
+Where the launcher looks for modpacks, news, and updates. Also has the Microsoft OAuth client ID (registered in Azure AD, you don't need to set up your own).
 
 ```properties
 newsUrl=https://mcje-bucket.sfo3.digitaloceanspaces.com/news.html?version=%s
@@ -74,6 +84,23 @@ latestUrl=https://mcje-bucket.sfo3.digitaloceanspaces.com/latest.json
 | Windows | `%LOCALAPPDATA%\MCJE` |
 | macOS | `~/.MCJE` |
 | Linux | `$XDG_DATA_HOME/MCJE` or `~/.local/share/MCJE` |
+
+## Custom assets
+
+The launcher uses custom images that live in the source tree. If you want to rebrand or swap them out:
+
+| File | What it is |
+|------|-----------|
+| `launcher/src/main/resources/.../icon.png` | Main launcher window icon |
+| `launcher/src/main/resources/.../instance_icon.png` | Default modpack icon |
+| `launcher/src/main/resources/.../tray_ok.png` | System tray icon |
+| `launcher-fancy/src/main/resources/.../mcje-background.png` | Launcher background image |
+| `launcher-fancy/src/main/resources/.../launcher_bg.jpg` | Alternate background |
+| `launcher-fancy/src/main/resources/.../icons/MCJE-Beyond-Depth-Plus-26.png` | Modpack icon |
+| `launcher-fancy/src/main/resources/.../icons/options.png` | Settings gear icon |
+| `installer/windows/resources/icon.ico` | Windows installer/shortcut icon |
+
+Note: there is no `installer/macos/resources/icon.icns` yet. macOS installs will use a default icon until you add one. See `installer/README.md` for how to generate it from the PNG.
 
 ## Hosting your files
 
@@ -106,6 +133,27 @@ news.html          Shows up in the launcher news tab
   "url": "https://mcje-bucket.sfo3.digitaloceanspaces.com/launcher.jar"
 }
 ```
+
+`packages.json` looks like this:
+
+```json
+{
+  "minimumVersion": 1,
+  "packages": [
+    {
+      "name": "my-modpack",
+      "title": "My Modpack",
+      "version": "20250101",
+      "location": "my-modpack.json",
+      "priority": 1
+    }
+  ]
+}
+```
+
+`name` is the internal ID, `title` is what shows in the launcher, `location` is the URL path to the modpack manifest (relative to your bucket), and `priority` controls sort order (higher = shows first).
+
+`news.html` is just a plain HTML page. Keep it simple because Java's built in HTML renderer is terrible. Stick to basic text, headings, links, and lists. No fancy CSS or JavaScript.
 
 ## Pushing a launcher update to users
 
@@ -141,6 +189,10 @@ src/
 loaders/          Drop Forge/Fabric/LiteLoader installers here
 ```
 
+## Portable mode
+
+Drop an empty file called `portable.txt` next to the bootstrap JAR and the launcher will store everything in the current directory instead of AppData/home. Good for USB drives or keeping things self contained.
+
 ## Building installers
 
 Full instructions in [installer/README.md](installer/README.md).
@@ -159,10 +211,12 @@ Both download Java 21, build the bootstrap, and spit out an installer.
 2. `launcher-fancy` = the launcher people actually use (dark Minecraft UI)
 3. `launcher-bootstrap` = the thing the installer ships, it just downloads and runs launcher-fancy
 4. All the URLs live in `launcher.properties` and `bootstrap.properties` (see above)
-5. The Microsoft OAuth client ID is in `launcher.properties`, it's registered in Azure AD
+5. The Microsoft OAuth client ID is in `launcher.properties`, already registered in Azure AD
 6. To push a launcher update: build launcher-fancy, upload JAR to bucket, bump `latest.json`
 7. To push modpack changes: build with creator-tools, upload files, update `packages.json`
 8. You only need to rebuild installers if the bootstrap code or Java version changes
+9. Custom images are in the source tree (see Custom assets section), swap them to rebrand
+10. No macOS .icns icon yet, add one to `installer/macos/resources/` if you build a Mac installer
 
 ## License
 
