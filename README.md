@@ -1,8 +1,4 @@
-# MCJE Launcher
-
 ![MCJE Launcher](readme/animation.gif)
-
-I love the SKCRAFT launcher. But, this is my own custom Minecraft Java Edition modpack launcher built on top of [SKCraft Launcher](https://github.com/SKCraft/Launcher). Dark Minecraft themed UI, bundles Java 21, and updates itself automatically.
 
 ## Project Structure
 
